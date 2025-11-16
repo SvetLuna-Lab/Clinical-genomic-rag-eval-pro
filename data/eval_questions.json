@@ -1,0 +1,14 @@
+[
+  {
+    "id": "q1",
+    "question": "What is recommended adjuvant therapy for ER+ early-stage breast cancer?",
+    "expected_keywords": ["endocrine therapy", "adjuvant"],
+    "must_be_grounded_in": ["clin_note_001.md", "pubmed_abstract_001.md"]
+  },
+  {
+    "id": "q2",
+    "question": "When might PI3K inhibitors be relevant in ER+ breast cancer?",
+    "expected_keywords": ["PI3K", "PIK3CA"],
+    "must_be_grounded_in": ["genomics_oncokb_excerpt.md"]
+  }
+]
