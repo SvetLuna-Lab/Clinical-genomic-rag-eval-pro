@@ -1,0 +1,21 @@
+paths:
+  data_dir: data
+  corpus_dir: data/corpus
+  questions: data/eval_questions.json
+  out_dir: reports
+
+retrieval:
+  kind: hybrid    # bm25 | dense | hybrid
+  top_k: 5
+  hybrid_alpha: 0.5
+
+generation:
+  use_llm: false  # true → src/llm_client.py
+  max_chars: 280
+
+metrics:
+  hit_k: 5
+  use_faithfulness_plus: true
+  thresholds:
+    low_coverage: 0.4
+    low_overlap: 0.5
