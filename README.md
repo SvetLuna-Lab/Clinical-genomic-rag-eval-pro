@@ -225,9 +225,10 @@ LLM client adapter with auditable logs and A/B runner.
 Versioning
 
 We follow Semantic Versioning. See CHANGELOG.md
-.
-Initial release: v0.1.0-pro.
 
+## [0.1.0] - 2025-11-16
+- Initial public release: BM25/dense/hybrid, faithfulness proxies,
+  JSONL/CSV/HTML reporting, CI, Makefile/run.sh.
 
 
 License
