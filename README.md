@@ -138,19 +138,18 @@ Presets live in configs/retrievers.yaml.
 <details>
   <summary><b>Metrics (transparent proxies)</b></summary>
 
-  <!--## Metrics (transparent proxies)
+| Area         | Metric                                   | Meaning (short)                                                     |
+|--------------|------------------------------------------|----------------------------------------------------------------------|
+| Retrieval    | `hit@k`                                  | Gold document present among top-k                                   |
+| Citations    | `citation_recall`                        | Share of gold `doc_id`s referenced by the answer                    |
+| Grounding    | `keyword_coverage`                       | Expected keywords found in claim                                    |
+| Grounding    | `context_overlap`                        | Token overlap between claim and concatenated citation quotes        |
+| Faithfulness | `faithfulness_stub`                      | Every citation shares tokens with claim (quick proxy)               |
+| Faithfulness+| `faithfulness_precision` / `recall` / `f1` | Token-level claim–evidence alignment                                |
+| Triage       | error tags                               | `no_hit_at_k`, `no_citations`, `low_coverage`, `low_overlap`, …     |
 
-| Area         | Metric                                                          | Meaning (short)                                                              |
-|:-------------|:----------------------------------------------------------------|:-----------------------------------------------------------------------------|
-| Retrieval    | `hit@k`                                                         | Gold document present among top-k                                            |
-| Citations    | `citation_recall`                                               | Share of gold `doc_id`s referenced by the answer                             |
-| Grounding    | `keyword_coverage`                                              | Expected keywords found in claim                                             |
-| Grounding    | `context_overlap`                                               | Token overlap between claim and concatenated citation quotes                 |
-| Faithfulness | `faithfulness_stub`                                             | Every citation shares tokens with claim (quick proxy)                        |
-| Faithfulness+| `faithfulness_precision`, `faithfulness_recall`, `faithfulness_f1` | Token-level claim–evidence alignment                                     |
-| Triage       | error tags                                                      | `no_hit_at_k`, `no_citations`, `low_coverage`, `low_overlap`, …             |
- -->
 </details>
+
 
 These are auditable, deterministic proxies designed to reduce hallucinations and diagnose retrieval/prompt issues before integrating real clinical corpora.
 
