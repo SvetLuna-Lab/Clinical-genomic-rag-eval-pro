@@ -1,88 +1,237 @@
-import argparse, csv, json, os
-from typing import Any, Dict, List, Set
-from ..pipeline import Pipeline
-from ..eval_metrics import retrieval_hit_at_k, citation_recall, keyword_coverage, context_overlap, faithfulness_stub
-from ..faithfulness import claim_evidence_pr
-from ..error_taxonomy import tag_errors
-from ..utils.io import read_json, ensure_dir
-from ..reporting.report_html import main as build_html
+"""
+Run clinical/genomic RAG evaluation.
 
-def load_cfg(path: str) -> Dict[str, Any]:
-    import yaml
-    with open(path,"r",encoding="utf-8") as f: return yaml.safe_load(f)
+- Loads YAML config (paths, retrieval/generation, metrics).
+- Optionally forces BM25 with --bm25 (useful in CI smoke without extra deps).
+- Runs the pipeline over data/eval_questions.json.
+- Computes transparent metrics and writes artifacts to reports/:
+    * eval_report.jsonl  (per-question records)
+    * eval_report.csv    (per-question metric table)
 
-def concat_citations(answer: Dict) -> str:
-    return " ".join(c.get("quote","") for c in answer.get("citations", []))
+Python 3.10+
+"""
 
-def main(config_path: str) -> None:
-    cfg = load_cfg(config_path)
-    out_dir = cfg["paths"]["out_dir"]; ensure_dir(out_dir)
-    data_dir = cfg["paths"]["data_dir"]; corpus_dir = cfg["paths"]["corpus_dir"]
-    questions_path = cfg["paths"]["questions"]
-    qset: List[Dict[str, Any]] = read_json(questions_path)
+from __future__ import annotations
 
-    pipe = Pipeline(
-        corpus_dir=corpus_dir,
-        retriever_kind=cfg["retrieval"]["kind"],
-        hybrid_alpha=cfg["retrieval"].get("hybrid_alpha", 0.5),
-        dense_model=cfg["retrieval"].get("model_name"),
+import argparse
+import json
+import csv
+import sys
+from dataclasses import asdict, is_dataclass
+from pathlib import Path
+from typing import Any, Dict, List
+
+import yaml  # pyyaml
+
+# --- Pipeline & metrics imports -------------------------------------------------
+# Be resilient to naming (Pipeline vs RagPipeline) across repos.
+try:
+    from src.pipeline import Pipeline as _Pipeline
+except Exception:
+    from src.pipeline import RagPipeline as _Pipeline  # type: ignore
+
+from src.eval_metrics import evaluate_single, to_dict  # keyword_coverage / context_overlap / score
+
+
+# --- Utilities ------------------------------------------------------------------
+
+
+def _ensure_dir(p: Path) -> None:
+    p.mkdir(parents=True, exist_ok=True)
+
+
+def _load_json(path: Path) -> Any:
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _write_jsonl(path: Path, rows: List[Dict[str, Any]]) -> None:
+    with path.open("w", encoding="utf-8") as f:
+        for r in rows:
+            # make dataclasses JSON-serializable if they slip in
+            f.write(json.dumps(_auto_to_json(r), ensure_ascii=False))
+            f.write("\n")
+
+
+def _write_csv(path: Path, rows: List[Dict[str, Any]], field_order: List[str]) -> None:
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=field_order)
+        writer.writeheader()
+        for r in rows:
+            writer.writerow({k: r.get(k) for k in field_order})
+
+
+def _auto_to_json(obj: Any) -> Any:
+    """Convert dataclasses to dicts recursively; pass through JSON-native types."""
+    if is_dataclass(obj):
+        return {k: _auto_to_json(v) for k, v in asdict(obj).items()}
+    if isinstance(obj, dict):
+        return {k: _auto_to_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_auto_to_json(v) for v in obj]
+    return obj
+
+
+def _concat_docs(corpus_dir: Path, doc_ids: List[str]) -> str:
+    """Concatenate ground-truth context by doc_ids (used for overlap)."""
+    parts: List[str] = []
+    for doc_id in doc_ids:
+        p = corpus_dir / doc_id
+        if p.exists():
+            parts.append(p.read_text(encoding="utf-8"))
+    return "\n".join(parts)
+
+
+# --- CLI ------------------------------------------------------------------------
+
+
+def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run RAG evaluation")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="configs/default.yaml",
+        help="Path to YAML config.",
     )
-    top_k = int(cfg["retrieval"]["top_k"])
-    hit_k = int(cfg["metrics"]["hit_k"])
+    parser.add_argument(
+        "--out_jsonl",
+        type=str,
+        default=None,
+        help="Override output JSONL path (else <out_dir>/eval_report.jsonl).",
+    )
+    parser.add_argument(
+        "--out_csv",
+        type=str,
+        default=None,
+        help="Override output CSV path (else <out_dir>/eval_report.csv).",
+    )
+    parser.add_argument(
+        "--top_k",
+        type=int,
+        default=None,
+        help="Override retrieval.top_k.",
+    )
+    # CI-friendly switch to avoid dense deps in smoke runs
+    parser.add_argument(
+        "--bm25",
+        action="store_true",
+        help="Force BM25 for CI smoke.",
+    )
+    return parser.parse_args(argv)
 
-    jsonl_path = os.path.join(out_dir, "eval_report.jsonl")
-    csv_path   = os.path.join(out_dir, "eval_report.csv")
-    html_path  = os.path.join(out_dir, "report.html")
 
-    rows_csv: List[Dict[str, Any]] = []
-    with open(jsonl_path, "w", encoding="utf-8") as jf:
-        for q in qset:
-            qid = q["id"]; question = q["question"]
-            expected = q.get("expected_keywords", [])
-            gold_ids: Set[str] = set(q.get("must_be_grounded_in", []))
+# --- Main -----------------------------------------------------------------------
 
-            answer, ctxs = pipe.run(qid, question, top_k=top_k)
-            retrieved_ids = [c["doc_id"] for c in ctxs]
 
-            hitk = retrieval_hit_at_k(retrieved_ids, gold_ids, k=hit_k)
-            citrec = citation_recall(answer, gold_ids)
-            cov = keyword_coverage(answer.get("claim",""), expected)
-            ovlp = context_overlap(answer.get("claim",""), concat_citations(answer))
-            faith = faithfulness_stub(answer)
-            prec, rec, f1 = claim_evidence_pr(answer.get("claim",""), answer.get("citations", []))
-            metrics = {
-                "hit@k": hitk,
-                "citation_recall": citrec,
-                "keyword_coverage": cov,
-                "context_overlap": ovlp,
-                "faithfulness_stub": faith,
-                "faithfulness_precision": prec,
-                "faithfulness_recall": rec,
-                "faithfulness_f1": f1,
-            }
-            tags = tag_errors(metrics, cfg["metrics"].get("thresholds", {}))
+def main(cfg_path: str) -> Dict[str, Any]:
+    # Load YAML config
+    with open(cfg_path, "r", encoding="utf-8") as f:
+        cfg: Dict[str, Any] = yaml.safe_load(f)
 
-            record = {"id": qid, "question": question, "answer": answer,
-                      "retrieved_doc_ids": retrieved_ids, "metrics": metrics, "tags": tags}
-            jf.write(json.dumps(record, ensure_ascii=False) + "\n")
+    # CLI overrides (top_k / bm25)
+    args = parse_args([])
+    # Note: parse_args([]) would ignore CLI; we want real CLI here:
+    args = parse_args(None)
 
-            row = {"id": qid, **metrics}
-            rows_csv.append(row)
+    if args.top_k is not None:
+        cfg.setdefault("retrieval", {})["top_k"] = int(args.top_k)
 
-    with open(csv_path, "w", newline="", encoding="utf-8") as cf:
-        import csv as _csv
-        writer = _csv.DictWriter(cf, fieldnames=list(rows_csv[0].keys()))
-        writer.writeheader(); writer.writerows(rows_csv)
+    if args.bm25:
+        # Force BM25 in CI smoke to avoid installing embedding deps
+        cfg.setdefault("retrieval", {})["kind"] = "bm25"
 
-    # quick HTML
-    build_html(jsonl_path, html_path)
+    # Resolve paths
+    paths = cfg.get("paths", {})
+    data_dir = Path(paths.get("data_dir", "data"))
+    corpus_dir = Path(paths.get("corpus_dir", str(data_dir / "corpus")))
+    q_path = Path(paths.get("questions", str(data_dir / "eval_questions.json")))
+    out_dir = Path(paths.get("out_dir", "reports"))
+    _ensure_dir(out_dir)
+
+    out_jsonl = Path(args.out_jsonl) if args.out_jsonl else out_dir / "eval_report.jsonl"
+    out_csv = Path(args.out_csv) if args.out_csv else out_dir / "eval_report.csv"
+
+    # Build pipeline
+    pipe = _Pipeline(
+        corpus_dir=str(corpus_dir),
+        config=cfg,  # allow pipeline to read retrieval/generation settings
+    )
+
+    # Load questions
+    questions: List[Dict[str, Any]] = _load_json(q_path)
+
+    results_jsonl: List[Dict[str, Any]] = []
+    results_csv_rows: List[Dict[str, Any]] = []
+
+    top_k = int(cfg.get("retrieval", {}).get("top_k", 5))
+
+    for q in questions:
+        qid = q["id"]
+        question = q["question"]
+        expected_keywords = q.get("expected_keywords", [])
+        must_be_grounded_in = q.get("must_be_grounded_in", [])
+
+        # Run pipeline
+        answer, contexts = pipe.run(qid=qid, question=question, top_k=top_k)
+
+        # Build "gold" context for overlap using expected doc_ids
+        gold_context = _concat_docs(corpus_dir, must_be_grounded_in)
+
+        # Compute metrics
+        eval_res = evaluate_single(
+            question_id=qid,
+            answer=answer,
+            expected_keywords=expected_keywords,
+            context_text=gold_context,
+            alpha=float(cfg.get("metrics", {}).get("alpha", 0.5)),
+        )
+
+        # JSONL record
+        record = {
+            "id": qid,
+            "question": question,
+            "answer": answer,
+            "expected_keywords": expected_keywords,
+            "must_be_grounded_in": must_be_grounded_in,
+            "metrics": to_dict(eval_res),
+            "retrieved_docs": [
+                {
+                    "doc_id": getattr(ctx, "doc_id", None),
+                    "score": getattr(ctx, "score", None),
+                }
+                for ctx in (contexts or [])
+            ],
+        }
+        results_jsonl.append(record)
+
+        # CSV summary row (flattened metrics)
+        flat = {"id": qid}
+        flat.update(to_dict(eval_res))
+        results_csv_rows.append(flat)
+
+    # Write artifacts
+    _write_jsonl(out_jsonl, results_jsonl)
+
+    csv_fields = [
+        "id",
+        "keyword_coverage",
+        "context_overlap",
+        "score",
+    ]
+    _write_csv(out_csv, results_csv_rows, csv_fields)
+
+    # Print short summary for CI logs
     print("=== Pro RAG evaluation complete ===")
-    print(f"JSONL: {os.path.abspath(jsonl_path)}")
-    print(f"CSV:   {os.path.abspath(csv_path)}")
-    print(f"HTML:  {os.path.abspath(html_path)}")
+    print(f"JSONL: {out_jsonl}")
+    print(f"CSV:   {out_csv}")
+
+    return {
+        "jsonl": str(out_jsonl),
+        "csv": str(out_csv),
+        "n": len(results_jsonl),
+    }
+
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--config", type=str, default="configs/default.yaml")
-    a = ap.parse_args()
-    main(a.config)
+    ns = parse_args()
+    sys.exit(0 if main(ns.config) else 1)
