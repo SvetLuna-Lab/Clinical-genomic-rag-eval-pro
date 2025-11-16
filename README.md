@@ -1,25 +1,24 @@
-Clinical-genomic-rag-eval-pro
 
-Pro-grade RAG evaluation for clinical/genomic use cases: hybrid retrieval (BM25 + embeddings), stronger faithfulness metrics, YAML configs, and HTML reports.
-Python 3.10+.
+# Clinical-Genomic RAG Eval Pro
 
+Pro-grade **RAG evaluation** for clinical/genomic scenarios: hybrid retrieval (BM25 + embeddings), transparent faithfulness metrics, YAML configs, and HTML reports.  
+**Python 3.10+**
 
-Highlights
+---
 
-Hybrid retrieval: BM25 (no deps) + optional dense retriever (Sentence-Transformers + FAISS).
+## Highlights
 
-Faithfulness+: token-level claim–evidence Precision/Recall/F1, citation recall, keyword coverage, context overlap.
+- **Hybrid retrieval**: BM25 (pure Python) + optional dense retriever (Sentence-Transformers + FAISS).
+- **Faithfulness+**: token-level claim↔evidence Precision/Recall/F1; citation recall; keyword coverage; context overlap.
+- **Reproducible runs**: YAML configs, Makefile targets, CI, deterministic seeds.
+- **Audit artifacts**: JSONL & CSV per question + HTML summary dashboard.
+- **Small, extensible**: clean Python modules; easy to plug a real LLM client.
 
-Reproducible runs: YAML configs, Makefile targets, CI, deterministic seeds.
+---
 
-Audit artifacts: JSONL/CSV per-question metrics and an HTML summary report.
+## Repository structure
 
-Small, extensible: clean Python modules, easy to plug in a real LLM client.
-
-
-
-Repository structure
-
+```text
 clinical-genomic-rag-eval-pro/
 ├─ .github/workflows/ci.yml
 ├─ configs/
@@ -124,19 +123,17 @@ eval_report.csv — per-question metric table
 report.html — summary dashboard (averages + per-question table)
 
 
-etrieval modes
+Retrieval modes
 
 BM25 (default; no extra deps)
 retrieval.kind: bm25 in configs/default.yaml.
 
 Dense (requires requirements-emb.txt)
-retrieval.kind: dense, choose model_name (e.g., sentence-transformers/all-MiniLM-L6-v2).
+retrieval.kind: dense and choose model_name (e.g. sentence-transformers/all-MiniLM-L6-v2).
 
 Hybrid (linear fusion)
-retrieval.kind: hybrid, set hybrid_alpha in [0,1] (weight for BM25).
-
-Preset examples live in configs/retrievers.yaml.
-
+retrieval.kind: hybrid, set hybrid_alpha ∈ [0,1] — weight for BM25.
+Presets live in configs/retrievers.yaml.
 
 
 Metrics (transparent proxies)
