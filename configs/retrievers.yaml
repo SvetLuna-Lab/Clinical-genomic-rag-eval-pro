@@ -1,0 +1,13 @@
+presets:
+  bm25_fast:
+    kind: bm25
+    top_k: 5
+  dense_base:
+    kind: dense
+    model_name: sentence-transformers/all-MiniLM-L6-v2
+    top_k: 5
+  hybrid_50_50:
+    kind: hybrid
+    model_name: sentence-transformers/all-MiniLM-L6-v2
+    top_k: 5
+    hybrid_alpha: 0.5
