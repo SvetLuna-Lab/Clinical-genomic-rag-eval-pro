@@ -1,8 +1,8 @@
 PY=python
-
-.PHONY: setup test eval report bench clean
+.PHONY: setup setup-emb setup-llm test eval report bench clean
 
 setup:
+	$(PY) -m pip install --upgrade pip
 	$(PY) -m pip install -r requirements.txt
 
 setup-emb:
@@ -21,7 +21,7 @@ report:
 	$(PY) -m src.reporting.report_html --in_jsonl reports/eval_report.jsonl --out_html reports/report.html
 
 bench:
-	$(PY) -m src.runners.run_retrieval_bench --config configs/retrievers.yaml
+	$(PY) -m src.runners.run_retrieval_bench --config configs/default.yaml
 
 clean:
-	rm -f reports/*.jsonl reports/*.csv reports/*.html reports/*.png || true
+	rm -f reports/*.jsonl reports/*.csv reports/*.html || true
