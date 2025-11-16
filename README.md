@@ -1,5 +1,7 @@
 
 # Clinical-Genomic RAG Eval Pro
+[![CI](https://github.com/SvetLuna-Lab/Clinical-genomic-rag-eval-pro/actions/workflows/ci.yml/badge.svg)](https://github.com/SvetLuna-Lab/Clinical-genomic-rag-eval-pro/actions/workflows/ci.yml)
+
 
 Pro-grade **RAG evaluation** for clinical/genomic scenarios: hybrid retrieval (BM25 + embeddings), transparent faithfulness metrics, YAML configs, and HTML reports.  
 **Python 3.10+**
@@ -22,8 +24,8 @@ Pro-grade **RAG evaluation** for clinical/genomic scenarios: hybrid retrieval (B
 clinical-genomic-rag-eval-pro/
 ├─ .github/workflows/ci.yml
 ├─ configs/
-│  ├─ default.yaml                 # pipeline/metrics/paths
-│  └─ retrievers.yaml              # bm25 / dense / hybrid presets
+│  ├─ default.yaml                
+│  └─ retrievers.yaml              
 ├─ data/
 │  ├─ corpus/
 │  │  ├─ clin_note_001.md
@@ -34,33 +36,34 @@ clinical-genomic-rag-eval-pro/
 │     ├─ answer_template.json
 │     └─ doc_schema.md
 ├─ reports/
-│  └─ .gitkeep                     # artifacts land here (jsonl/csv/html)
+│  └─ .gitkeep                    
 ├─ src/
 │  ├─ __init__.py
-│  ├─ chunking.py                  # section-aware chunking (HPI / A&P / Pathology)
-│  ├─ retriever_bm25.py            # BM25-lite retriever (pure Python)
-│  ├─ retriever_dense.py           # Sentence-Transformers + FAISS (optional)
-│  ├─ retriever_hybrid.py          # linear fusion α*BM25 + (1-α)*dense
-│  ├─ llm_client.py                # answer stub + interface for real LLMs
-│  ├─ pipeline.py                  # retrieve → cite → answer stub
-│  ├─ eval_metrics.py              # hit@k, citation_recall, coverage, overlap, faithfulness_stub
-│  ├─ faithfulness.py              # claim/evidence token Precision, Recall, F1
-│  ├─ error_taxonomy.py            # rule-based error tags
+│  ├─ chunking.py                  
+│  ├─ retriever_bm25.py           
+│  ├─ retriever_dense.py          
+│  ├─ retriever_hybrid.py          
+│  ├─ llm_client.py               
+│  ├─ pipeline.py                 
+│  ├─ eval_metrics.py             
+│  ├─ faithfulness.py              
+│  ├─ error_taxonomy.py           
 │  ├─ reporting/
-│  │  ├─ report_html.py            # JSONL → HTML summary
-│  │  └─ plots.py                  # placeholder for charts
+│  │  ├─ report_html.py            
+│  │  └─ plots.py                 
 │  ├─ runners/
-│  │  ├─ run_eval.py               # main evaluation runner
-│  │  ├─ run_retrieval_bench.py    # retrieval-only benchmark (BM25 baseline)
-│  │  └─ run_llm_ablate.py         # (stub) A/B harness for LLMs
+│  │  ├─ run_eval.py               
+│  │  ├─ run_retrieval_bench.py   
+│  │  └─ run_llm_ablate.py        
 │  └─ utils/
-│     ├─ io.py                     # IO helpers (JSON/JSONL, dirs)
-│     └─ seed.py                   # determinism
+│     ├─ io.py                    
+│     └─ seed.py                  
 ├─ tests/
 │  ├─ test_metrics.py
 │  ├─ test_faithfulness.py
 │  ├─ test_retrieval_bench.py
 │  └─ test_runner_smoke.py
+├─ pytest.ini
 ├─ CHANGELOG.md
 ├─ LICENSE
 ├─ Makefile
