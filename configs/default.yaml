@@ -5,9 +5,10 @@ paths:
   out_dir: reports
 
 retrieval:
-  kind: hybrid    # bm25 | dense | hybrid
+  kind: bm25      
   top_k: 5
   hybrid_alpha: 0.5
+  # model_name: sentence-transformers/all-MiniLM-L6-v2
 
 generation:
   use_llm: false  # true → src/llm_client.py
