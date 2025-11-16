@@ -1,14 +1,3 @@
-"""
-Run clinical/genomic RAG evaluation.
-
-- Loads YAML config (paths, retrieval/generation, metrics).
-- Optional --bm25 flag to force BM25 (для CI smoke без emb deps).
-- Прогоняет вопросы из data/eval_questions.json.
-- Пишет артефакты в reports/:
-    * eval_report.jsonl
-    * eval_report.csv
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -21,7 +10,6 @@ from typing import Any, Dict, List
 
 import yaml
 
-# ---- pipeline import (be tolerant to naming/signatures) -----------------------
 try:
     from src.pipeline import Pipeline as _Pipeline
 except Exception:
@@ -30,7 +18,7 @@ except Exception:
 from src.eval_metrics import evaluate_single, to_dict
 
 
-# ---- small utils --------------------------------------------------------------
+# -------- utils ---------------------------------------------------------------
 
 def _ensure_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
@@ -75,7 +63,27 @@ def _concat_docs(corpus_dir: Path, doc_ids: List[str]) -> str:
     return "\n".join(parts)
 
 
-# ---- CLI ----------------------------------------------------------------------
+def _answer_text(answer: Any) -> str:
+    """
+    Normalize pipeline answer into a plain string for metrics.
+    Accepts:
+      - str
+      - dict with one of keys: "text", "answer", "output", "content"
+      - anything else -> JSON string
+    """
+    if isinstance(answer, str):
+        return answer
+    if isinstance(answer, dict):
+        for k in ("text", "answer", "output", "content"):
+            v = answer.get(k)
+            if isinstance(v, str):
+                return v
+        # fallback: compact json
+        return json.dumps(answer, ensure_ascii=False)
+    return str(answer)
+
+
+# -------- CLI -----------------------------------------------------------------
 
 def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Run RAG evaluation")
@@ -87,7 +95,7 @@ def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
-# ---- main ---------------------------------------------------------------------
+# -------- main ----------------------------------------------------------------
 
 def main(cfg_path: str) -> Dict[str, Any]:
     with open(cfg_path, "r", encoding="utf-8") as f:
@@ -110,29 +118,30 @@ def main(cfg_path: str) -> Dict[str, Any]:
     out_jsonl = Path(args.out_jsonl) if args.out_jsonl else out_dir / "eval_report.jsonl"
     out_csv = Path(args.out_csv) if args.out_csv else out_dir / "eval_report.csv"
 
-    # --- construct pipeline (handle different __init__ signatures gracefully)
+    # Construct pipeline (tolerant to signatures)
     pipe = None
-    init_err: Exception | None = None
+    last_err: Exception | None = None
     for kwargs in (
         {"corpus_dir": str(corpus_dir), "config": cfg},
-        {"corpus_dir": str(corpus_dir)},                 # demo-стиль
-        {"corpus_dir": corpus_dir},                      # Path variant
+        {"corpus_dir": str(corpus_dir)},
+        {"corpus_dir": corpus_dir},
     ):
         try:
             pipe = _Pipeline(**kwargs)  # type: ignore[arg-type]
-            init_err = None
+            last_err = None
             break
         except TypeError as e:
-            init_err = e
+            last_err = e
             continue
     if pipe is None:
-        raise RuntimeError(f"Cannot construct pipeline with known signatures: {init_err}")
+        raise RuntimeError(f"Cannot construct pipeline: {last_err}")
 
     questions: List[Dict[str, Any]] = _load_json(q_path)
 
     results_jsonl: List[Dict[str, Any]] = []
     results_csv_rows: List[Dict[str, Any]] = []
     top_k = int(cfg.get("retrieval", {}).get("top_k", 5))
+    alpha = float(cfg.get("metrics", {}).get("alpha", 0.5))
 
     for q in questions:
         qid = q["id"]
@@ -140,36 +149,36 @@ def main(cfg_path: str) -> Dict[str, Any]:
         expected_keywords = q.get("expected_keywords", [])
         must_be_grounded_in = q.get("must_be_grounded_in", [])
 
-        # --- run pipeline (support different run signatures)
         try:
             answer, contexts = pipe.run(qid=qid, question=question, top_k=top_k)  # type: ignore[attr-defined]
         except TypeError:
             answer, contexts = pipe.run(question=question, top_k=top_k)  # type: ignore[misc]
         except Exception:
-            # very old stub: run(question, top_k)
             answer, contexts = pipe.run(question, top_k)  # type: ignore[misc]
 
+        answer_text = _answer_text(answer)
         gold_context = _concat_docs(corpus_dir, must_be_grounded_in)
 
         eval_res = evaluate_single(
             question_id=qid,
-            answer=answer,
+            answer=answer_text,
             expected_keywords=expected_keywords,
             context_text=gold_context,
-            alpha=float(cfg.get("metrics", {}).get("alpha", 0.5)),
+            alpha=alpha,
         )
 
         record = {
             "id": qid,
             "question": question,
-            "answer": answer,
+            "answer_text": answer_text,
+            "answer_raw": answer if isinstance(answer, dict) else None,
             "expected_keywords": expected_keywords,
             "must_be_grounded_in": must_be_grounded_in,
             "metrics": to_dict(eval_res),
             "retrieved_docs": [
                 {
-                    "doc_id": getattr(ctx, "doc_id", None),
-                    "score": getattr(ctx, "score", None),
+                    "doc_id": getattr(ctx, "doc_id", None) if not isinstance(ctx, dict) else ctx.get("doc_id"),
+                    "score": getattr(ctx, "score", None) if not isinstance(ctx, dict) else ctx.get("score"),
                 }
                 for ctx in (contexts or [])
             ],
