@@ -1,40 +1,92 @@
-from typing import Dict, List, Set
+# src/eval_metrics.py
+from __future__ import annotations
 
-def retrieval_hit_at_k(retrieved_ids: List[str], gold_ids: Set[str], k: int) -> float:
-    return 1.0 if any(doc in gold_ids for doc in retrieved_ids[:k]) else 0.0
+from dataclasses import dataclass
+from typing import Dict, List
 
-def citation_recall(answer_json: Dict, gold_ids: Set[str]) -> float:
-    if not gold_ids: return 0.0
-    cited = {c.get("doc_id") for c in answer_json.get("citations", []) if c.get("doc_id")}
-    return len(gold_ids & cited) / len(gold_ids)
 
-def keyword_coverage(claim: str, expected: List[str]) -> float:
-    if not expected: return 0.0
-    cl = claim.lower()
-    hits = sum(1 for kw in expected if kw.lower() in cl)
-    return hits / len(expected)
+def _tokenize(text: str) -> List[str]:
+    # Very simple tokenizer: lowercase, split on whitespace, keep only [a-z0-9]
+    tokens = []
+    for raw in text.lower().split():
+        tok = "".join(ch for ch in raw if ch.isalnum())
+        if tok:
+            tokens.append(tok)
+    return tokens
 
-def _tok(s: str) -> List[str]:
-    out = []
-    for w in s.lower().split():
-        t = "".join(ch for ch in w if ch.isalnum())
-        if t: out.append(t)
-    return out
 
-def context_overlap(claim: str, ctx_text: str) -> float:
-    ct = set(_tok(ctx_text)); cl = _tok(claim)
-    if not cl: return 0.0
-    hits = sum(1 for t in cl if t in ct)
-    return hits / len(cl)
+def keyword_coverage(answer: str, expected_keywords: List[str]) -> float:
+    """
+    Share of expected keywords that actually appear in the answer (substring, case-insensitive).
+    """
+    if not expected_keywords:
+        return 0.0
+    ans_l = answer.lower()
+    hits = sum(1 for kw in expected_keywords if kw.lower() in ans_l)
+    return hits / len(expected_keywords)
 
-def faithfulness_stub(answer_json: Dict) -> float:
-    # True if every citation shares at least one token with claim.
-    claim = answer_json.get("claim","")
-    claim_t = set(_tok(claim))
-    cits = answer_json.get("citations", [])
-    if not cits: return 0.0
-    ok = 0
-    for c in cits:
-        qt = set(_tok(c.get("quote","")))
-        ok += 1 if claim_t & qt else 0
-    return ok / len(cits)
+
+def context_overlap(answer: str, context_text: str) -> float:
+    """
+    Very simple "non-hallucination" proxy:
+    fraction of answer tokens that appear in the provided context.
+    """
+    ans_toks = _tokenize(answer)
+    if not ans_toks:
+        return 0.0
+    ctx_toks = set(_tokenize(context_text))
+    hits = sum(1 for t in ans_toks if t in ctx_toks)
+    return hits / len(ans_toks)
+
+
+@dataclass
+class EvalResult:
+    question_id: str
+    coverage: float
+    overlap: float
+    score: float
+
+
+def compute_score(coverage: float, overlap: float, alpha: float = 0.5) -> float:
+    """
+    Combined score = alpha * coverage + (1 - alpha) * overlap.
+    """
+    return alpha * coverage + (1.0 - alpha) * overlap
+
+
+def evaluate_single(
+    question_id: str,
+    answer: str,
+    expected_keywords: List[str],
+    context_text: str,
+    alpha: float = 0.5,
+) -> EvalResult:
+    """
+    Thin wrapper used by runners:
+    computes coverage/overlap and combines them into a scalar score.
+    """
+    cov = keyword_coverage(answer, expected_keywords)
+    ov = context_overlap(answer, context_text)
+    sc = compute_score(cov, ov, alpha=alpha)
+    return EvalResult(question_id=question_id, coverage=cov, overlap=ov, score=sc)
+
+
+def to_dict(res: EvalResult) -> Dict[str, float]:
+    return {
+        "question_id": res.question_id,
+        "keyword_coverage": res.coverage,
+        "context_overlap": res.overlap,
+        "score": res.score,
+    }
+
+
+# Optional explicit export list (helps linters and star-imports)
+__all__ = [
+    "keyword_coverage",
+    "context_overlap",
+    "compute_score",
+    "EvalResult",
+    "evaluate_single",
+    "to_dict",
+]
+
