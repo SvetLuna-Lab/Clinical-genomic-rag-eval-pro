@@ -1,0 +1,8 @@
+{
+  "id": "<question_id>",
+  "claim": "<short answer>",
+  "citations": [
+    { "doc_id": "clin_note_001.md", "quote": "quoted span from source" }
+  ],
+  "metadata": { "model": "stub", "retriever": "bm25" }
+}
